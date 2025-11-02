@@ -1,4 +1,14 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "npm:@supabase/supabase-js@2";
+
+// Helper function to create a SHA-256 hash
+async function sha256(message: string): Promise<string> {
+  const data = new TextEncoder().encode(message);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  return hashHex;
+}
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -38,8 +48,33 @@ Deno.serve(async (req) => {
       throw new Error('LOVABLE_API_KEY not configured');
     }
 
-    const { type, content, fileData }: AnalysisRequest = await req.json();
+    const requestBody: AnalysisRequest = await req.json();
+    const { type, content, fileData } = requestBody;
     console.log(`Analyzing ${type} content...`);
+
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    );
+
+    const contentIdentifier = fileData ? fileData.substring(0, 100) : content;
+    const contentHash = await sha256(contentIdentifier);
+
+    // Check cache first
+    const { data: cachedData, error: cacheError } = await supabase
+      .from('analysis_cache')
+      .select('result')
+      .eq('hash', contentHash)
+      .single();
+
+    if (cachedData && !cacheError) {
+      console.log('Cache hit!');
+      return new Response(JSON.stringify(cachedData.result), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    console.log('Cache miss. Performing new analysis.');
 
     let analysisResult: AnalysisResult;
 
@@ -62,6 +97,12 @@ Deno.serve(async (req) => {
       default:
         throw new Error('Invalid analysis type');
     }
+
+    // Store new result in cache
+    await supabase.from('analysis_cache').insert({
+      hash: contentHash,
+      result: analysisResult,
+    });
 
     return new Response(JSON.stringify(analysisResult), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

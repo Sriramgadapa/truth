@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
+import { useAnalysis } from "@/hooks/useAnalysis";
 import { 
   Upload, 
   FileText, 
@@ -25,21 +26,7 @@ import {
   Download
 } from "lucide-react";
 
-interface AnalysisResult {
-  status: 'verified' | 'suspicious' | 'false';
-  confidence: number;
-  issues: string[];
-  counterContent: {
-    factCheck: string;
-    visualContent: string;
-    shortForm: string;
-  };
-}
-
 export const AnalysisInterface = () => {
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisProgress, setAnalysisProgress] = useState(0);
-  const [analysisResults, setAnalysisResults] = useState<AnalysisResult | null>(null);
   const [inputText, setInputText] = useState("");
   const [inputUrl, setInputUrl] = useState("");
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
@@ -48,202 +35,15 @@ export const AnalysisInterface = () => {
   const [isGeneratingInfographic, setIsGeneratingInfographic] = useState(false);
   const { toast } = useToast();
 
-  const analyzeContent = (content: string) => {
-    const suspicious_keywords = ['breaking', 'urgent', 'exclusive', 'shocking', 'scandal', 'hoax', 'fake', 'conspiracy'];
-    const emotional_phrases = ['they don\'t want you to know', 'mainstream media hiding', 'truth revealed', 'wake up'];
-    
-    let confidence = Math.floor(Math.random() * 30) + 70; // 70-100% confidence
-    let status: 'verified' | 'suspicious' | 'false' = 'verified';
-    let issues: string[] = [];
-    
-    const lowerContent = content.toLowerCase();
-    
-    // Check for suspicious patterns
-    if (suspicious_keywords.some(keyword => lowerContent.includes(keyword))) {
-      status = 'suspicious';
-      issues.push('Contains sensational language patterns');
-    }
-    
-    if (emotional_phrases.some(phrase => lowerContent.includes(phrase))) {
-      status = 'false';
-      issues.push('Uses emotional manipulation tactics');
-      confidence = Math.min(confidence + 10, 95);
-    }
-    
-    // Check for lack of sources
-    if (!lowerContent.includes('source') && !lowerContent.includes('study') && !lowerContent.includes('research')) {
-      issues.push('No credible sources cited');
-      status = status === 'verified' ? 'suspicious' : status;
-    }
-    
-    // Check for excessive claims
-    if (lowerContent.includes('100%') || lowerContent.includes('always') || lowerContent.includes('never')) {
-      issues.push('Contains absolute claims without evidence');
-      status = status === 'verified' ? 'suspicious' : status;
-    }
-    
-    if (issues.length === 0) {
-      issues.push('Content appears factually sound');
-      issues.push('Sources are credible and verifiable');
-    }
-    
-    return { status, confidence, issues };
-  };
+  const {
+    isAnalyzing,
+    analysisProgress,
+    analysisResults,
+    handleAnalysis: performAnalysis
+  } = useAnalysis();
 
-  const generateCounterContent = (content: string, analysis: any) => {
-    const topics = {
-      climate: {
-        factCheck: "According to NASA and 97% of climate scientists, human activities are the primary cause of recent climate change. This is supported by decades of peer-reviewed research.",
-        visualContent: "Interactive chart showing global temperature trends and scientific consensus",
-        shortForm: "🌍 FACT: Climate change is real and human-caused. 97% of scientists agree based on solid evidence. #ClimateScience #FactsFirst"
-      },
-      vaccine: {
-        factCheck: "Vaccines are thoroughly tested for safety and efficacy. The WHO and CDC continuously monitor vaccine safety through multiple surveillance systems.",
-        visualContent: "Infographic showing vaccine development process and safety monitoring",
-        shortForm: "💉 FACT: Vaccines are safe and save lives. Rigorous testing and monitoring ensure public safety. #VaccinesSaveLives"
-      },
-      election: {
-        factCheck: "Election security experts and multiple audits have confirmed the integrity of election systems. Courts have upheld election results after thorough review.",
-        visualContent: "Timeline showing election security measures and verification processes",
-        shortForm: "🗳️ FACT: Elections are secure with multiple verification layers. Courts and experts confirm integrity. #ElectionSecurity"
-      },
-      default: {
-        factCheck: "This claim lacks credible evidence. Always verify information through reputable sources and fact-checking organizations.",
-        visualContent: "Guide to identifying reliable sources and fact-checking methods",
-        shortForm: "🔍 FACT-CHECK: Verify before you share! Check multiple reputable sources for accurate information. #FactCheck"
-      }
-    };
-    
-    const lowerContent = content.toLowerCase();
-    let topic = 'default';
-    
-    if (lowerContent.includes('climate') || lowerContent.includes('global warming')) topic = 'climate';
-    else if (lowerContent.includes('vaccine') || lowerContent.includes('vaccination')) topic = 'vaccine';
-    else if (lowerContent.includes('election') || lowerContent.includes('voting')) topic = 'election';
-    
-    return topics[topic as keyof typeof topics];
-  };
-
-  const handleAnalysis = async () => {
-    const content = inputText || inputUrl || (uploadedFile ? `Analyzing ${uploadedFile.type.split('/')[0]} file: ${uploadedFile.name}` : '');
-    
-    if (!content.trim() && !uploadedFile) {
-      toast({
-        title: "Content Required",
-        description: "Please enter some text, URL, or upload a file to analyze.",
-        variant: "destructive"
-      });
-      return;
-    }
-    
-    setIsAnalyzing(true);
-    setAnalysisProgress(0);
-    
-    // Simulate realistic analysis progress
-    const progressSteps = [
-      { progress: 25, message: "Preprocessing content..." },
-      { progress: 50, message: "Fact-checking claims..." },
-      { progress: 75, message: "Detecting manipulation..." },
-      { progress: 100, message: "Generating counter-content..." }
-    ];
-    
-    // Start progress animation
-    const progressInterval = setInterval(() => {
-      setAnalysisProgress(prev => {
-        const step = progressSteps.find(s => s.progress > prev);
-        return step ? step.progress : prev;
-      });
-    }, 1500);
-    
-    try {
-      let analysisType: 'text' | 'url' | 'image' | 'video' | 'audio' = 'text';
-      let contentToSend = content;
-      let fileData: string | undefined;
-
-      if (uploadedFile) {
-        const fileType = uploadedFile.type.split('/')[0];
-        if (fileType === 'image') {
-          analysisType = 'image';
-          // Convert image to base64 for AI analysis
-          const reader = new FileReader();
-          fileData = await new Promise<string>((resolve) => {
-            reader.onload = (e) => resolve(e.target?.result as string);
-            reader.readAsDataURL(uploadedFile);
-          });
-        } else if (fileType === 'video') {
-          analysisType = 'video';
-        } else if (fileType === 'audio') {
-          analysisType = 'audio';
-        }
-        contentToSend = uploadedFile.name;
-      } else if (inputUrl) {
-        analysisType = 'url';
-        contentToSend = inputUrl;
-      }
-
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-content`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            type: analysisType,
-            content: contentToSend,
-            fileData
-          })
-        }
-      );
-
-      clearInterval(progressInterval);
-      setAnalysisProgress(100);
-
-      if (!response.ok) {
-        throw new Error('Analysis failed');
-      }
-
-      const result = await response.json();
-      
-      // Map AI result to existing interface
-      const mappedResult = {
-        status: result.status === 'verified' ? 'verified' : 
-                result.status === 'false' || result.status === 'manipulated' ? 'false' : 
-                'suspicious',
-        confidence: result.truthScore,
-        issues: result.warnings && result.warnings.length > 0 ? result.warnings : 
-                result.claims.map((c: any) => c.explanation || c.text).slice(0, 3),
-        counterContent: generateCounterContent(content, result)
-      };
-
-      setAnalysisResults(mappedResult as AnalysisResult);
-
-      toast({
-        title: "Analysis Complete",
-        description: `Truth Score: ${result.truthScore}% - ${result.status}`,
-      });
-    } catch (error) {
-      clearInterval(progressInterval);
-      console.error('Analysis error:', error);
-      
-      // Fallback to local analysis
-      const analysis = analyzeContent(content);
-      const counterContent = generateCounterContent(content, analysis);
-      
-      setAnalysisResults({
-        ...analysis,
-        counterContent
-      });
-      
-      toast({
-        title: "Analysis Complete (Offline Mode)",
-        description: `Content analyzed with ${analysis.confidence}% confidence.`,
-        variant: "destructive"
-      });
-    } finally {
-      setIsAnalyzing(false);
-      setAnalysisProgress(0);
-    }
+  const handleAnalysis = () => {
+    performAnalysis(inputText, inputUrl, uploadedFile);
   };
 
   const copyToClipboard = async (text: string) => {
